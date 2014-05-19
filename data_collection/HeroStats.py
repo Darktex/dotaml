@@ -1,6 +1,6 @@
 __author__ = 'davide'
 from pymongo import MongoClient
-from progressbar import ProgressBar, Bar, Percentage, FormatLabel, ETA
+from progressbar import ProgressBar, Bar, Percentage, ETA
 import numpy as np
 
 np.set_printoptions(threshold=np.nan)
@@ -27,9 +27,11 @@ heroes_stats = db.heroes_stats
 
 NUM_HEROES = 108  # Still ok as a number as of May 2014
 
+# This is how the table is initialized:
+
 #for hero_id in range(1, NUM_HEROES):
 #    hero_stats = {
-#        '_id'       : hero_id,
+#        '_id'       : 1,
 #        'matches'   : []
 #    }
 #    heroes_stats.insert(hero_stats)
@@ -39,7 +41,7 @@ NUM_HEROES = 108  # Still ok as a number as of May 2014
 
 NUM_MATCHES = matches.count()
 
-widgets = [FormatLabel('Processed: %(value)d/%(max)d matches. '), ETA(), Percentage(), ' ', Bar()]
+widgets = ['Working...', ETA(), Percentage(), ' ', Bar()]
 pbar = ProgressBar(widgets=widgets, maxval=NUM_MATCHES).start()
 
 for i, record in enumerate(matches.find()):
@@ -47,7 +49,13 @@ for i, record in enumerate(matches.find()):
     players = record['players']
     length = record['duration']
     for player in players:
+        # Logs only record if radiant win or lose. So to find out if the player won,
+        # we check if he is radiant (I would have expected to just check the place in the players[] array,
+        # but apparently you must check the field player['player_slot'] which is < 128 iff the player
+        # is on Radiant). In that case, his outcome is the same as the radiant.
+        # Otherwise, it's the opposite.
 
+        game_won = record['radiant_win'] if player['player_slot'] < 128 else not (record['radiant_win'])
         hero_id = player['hero_id'] - 1
 
         match_stats = {
@@ -61,33 +69,11 @@ for i, record in enumerate(matches.find()):
             "xp_per_min": player['xp_per_min'],
             "last_hits": player['last_hits'],
             "denies": player['denies'],
-            "match_length": length
+            "match_length": length,
+            "game_won": game_won
         }
 
         heroes_stats.update({'_id': hero_id}, {'$push': {'matches': match_stats}})
 
-        # If the left-most bit of player_slot is set,
-        # this player is on dire, so push the index accordingly
-        player_slot = player['player_slot']
-        if player_slot >= 128:
-            hero_id += NUM_HEROES
-
-        X[i, hero_id] = 1
-
 pbar.finish()
-
-print "Permuting, generating train and test sets."
-indices = np.random.permutation(NUM_MATCHES)
-test_indices = indices[0:NUM_MATCHES / 10]
-train_indices = indices[NUM_MATCHES / 10:NUM_MATCHES]
-
-X_test = X[test_indices]
-Y_test = Y[test_indices]
-
-X_train = X[train_indices]
-Y_train = Y[train_indices]
-
-print "Saving output file now..."
-np.savez_compressed('test_%d.npz' % len(test_indices), X=X_test, Y=Y_test)
-np.savez_compressed('train_%d.npz' % len(train_indices), X=X_train, Y=Y_train)
 
